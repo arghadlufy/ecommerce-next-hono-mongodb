@@ -1,4 +1,4 @@
-import { Hono, Context } from "hono";
+import { Hono } from "hono";
 import { handle } from "hono/vercel";
 import { logger } from "hono/logger";
 import testRoutes from "../_routes/test.routes";

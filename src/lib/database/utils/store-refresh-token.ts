@@ -28,4 +28,15 @@ const deleteAllRefreshTokens = async (userId: string) => {
 	await redis.del(`refresh_token:${userId}`); // Clean up old format if exists
 };
 
-export { storeRefreshToken, deleteAllRefreshTokens };
+const getStoredTokenFromRedis = async (userId: string, deviceId?: string) => {
+  if (deviceId) {
+      // Get token for specific device
+      const token = await redis.hget(`user_sessions:${userId}`, deviceId);
+      return token;
+  }
+  // Fallback to single session storage
+  const token = await redis.get(`refresh_token:${userId}`);
+  return token;
+};
+
+export { storeRefreshToken, deleteAllRefreshTokens, getStoredTokenFromRedis };

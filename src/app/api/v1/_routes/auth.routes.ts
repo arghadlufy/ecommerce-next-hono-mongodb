@@ -6,11 +6,13 @@ import User from "@/lib/database/model/user.model";
 import generateToken from "@/lib/database/utils/generate-token";
 import {
 	deleteAllRefreshTokens,
+	getStoredTokenFromRedis,
 	storeRefreshToken,
 } from "@/lib/database/utils/store-refresh-token";
 import jwt from "jsonwebtoken";
 import { setSignedCookie, getSignedCookie, deleteCookie } from "hono/cookie";
 import { JWTPayload } from "@/types";
+import { redis } from "@/lib/database/redis";
 
 const authRoute = new Hono();
 
@@ -148,6 +150,7 @@ authRoute.post(
 
 			const { accessToken, refreshToken } = generateToken(user._id);
 
+			// store refresh token in redis
 			await storeRefreshToken(user._id, refreshToken, deviceId);
 
 			if (process.env.ACCESS_TOKEN_SECRET && process.env.REFRESH_TOKEN_SECRET) {
@@ -235,5 +238,48 @@ authRoute.get("/logout", async (c: Context) => {
 		);
 	}
 });
+
+// return the access token (if it's expired using refresh token)
+authRoute.get("/refresh-token", async (c) => {
+	try {
+		const headers = c.req.header();
+		const deviceId = headers["x-device-id"];
+		const secret = process.env.REFRESH_TOKEN_SECRET as string;
+		const refreshToken = await getSignedCookie(c, secret, "refresh_token");
+
+		if (!refreshToken) {
+			return c.json({
+				message: "Refresh token not found",
+			}, 401);
+		}
+		
+		const decoded = jwt.verify(refreshToken, secret) as JWTPayload;
+		const storedToken = await getStoredTokenFromRedis(decoded.userId, deviceId);
+
+		if (storedToken !== refreshToken) {
+			return c.json({
+				message: "Invalid refresh token",
+			}, 401);
+		}
+
+		const { accessToken } = generateToken(decoded.userId);
+
+		setSignedCookie(c, "access_token", accessToken, secret, {
+			path: "/",
+			secure: process.env.NODE_ENV === "production",
+			httpOnly: true,
+			maxAge: 15 * 60, // 15 minutes
+			expires: new Date(Date.now() + 15 * 60 * 1000),
+		});
+
+		return c.json({
+			message: "Access token refreshed",
+		}, 200);
+	} catch (error) {
+		return c.json({
+			message: "Internal server error",
+		}, 500);
+	}
+})
 
 export default authRoute;
