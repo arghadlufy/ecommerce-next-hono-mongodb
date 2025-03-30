@@ -20,6 +20,13 @@
 		"enabled": true,
 		"rules": {
 			"recommended": true,
+			"correctness": {
+				"noUnusedImports": "warn",
+				"noUnusedLabels": "warn"
+			},
+			"suspicious": {
+				"noExplicitAny": "warn"
+			},
 			"style": {
 				"useImportType": "off"
 			}
