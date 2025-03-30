@@ -10,9 +10,8 @@ import {
 	storeRefreshToken,
 } from "@/lib/database/utils/store-refresh-token";
 import jwt from "jsonwebtoken";
-import { setSignedCookie, getSignedCookie, deleteCookie, setCookie, getCookie } from "hono/cookie";
+import { setSignedCookie, deleteCookie, setCookie, getCookie } from "hono/cookie";
 import { JWTPayload } from "@/types";
-import { redis } from "@/lib/database/redis";
 
 const authRoute = new Hono();
 
