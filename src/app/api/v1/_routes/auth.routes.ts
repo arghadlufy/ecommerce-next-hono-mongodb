@@ -10,7 +10,7 @@ import {
 	storeRefreshToken,
 } from "@/lib/database/utils/store-refresh-token";
 import jwt from "jsonwebtoken";
-import { setSignedCookie, getSignedCookie, deleteCookie } from "hono/cookie";
+import { setSignedCookie, getSignedCookie, deleteCookie, setCookie, getCookie } from "hono/cookie";
 import { JWTPayload } from "@/types";
 import { redis } from "@/lib/database/redis";
 
@@ -51,11 +51,10 @@ authRoute.post(
 
 			if (process.env.ACCESS_TOKEN_SECRET && process.env.REFRESH_TOKEN_SECRET) {
 				// Access Token
-				await setSignedCookie(
+				setCookie(
 					c,
 					"access_token",
 					accessToken,
-					process.env.ACCESS_TOKEN_SECRET,
 					{
 						path: "/",
 						secure: process.env.NODE_ENV === "production",
@@ -67,11 +66,10 @@ authRoute.post(
 				);
 
 				// Refresh Token
-				await setSignedCookie(
+				setCookie(
 					c,
 					"refresh_token",
 					refreshToken,
-					process.env.REFRESH_TOKEN_SECRET,
 					{
 						path: "/",
 						secure: process.env.NODE_ENV === "production",
@@ -155,11 +153,10 @@ authRoute.post(
 
 			if (process.env.ACCESS_TOKEN_SECRET && process.env.REFRESH_TOKEN_SECRET) {
 				// Access Token
-				await setSignedCookie(
+				setCookie(
 					c,
 					"access_token",
 					accessToken,
-					process.env.ACCESS_TOKEN_SECRET,
 					{
 						path: "/",
 						secure: process.env.NODE_ENV === "production",
@@ -171,11 +168,10 @@ authRoute.post(
 				);
 
 				// Refresh Token
-				await setSignedCookie(
+				setCookie(
 					c,
 					"refresh_token",
 					refreshToken,
-					process.env.REFRESH_TOKEN_SECRET,
 					{
 						path: "/",
 						secure: process.env.NODE_ENV === "production",
@@ -211,8 +207,7 @@ authRoute.get("/logout", async (c: Context) => {
 	try {
 		const headers = c.req.header();
 		const deviceId = headers["x-device-id"];
-		const secret = process.env.REFRESH_TOKEN_SECRET as string;
-		const refreshToken = await getSignedCookie(c, secret, "refresh_token");
+		const refreshToken = getCookie(c, "refresh_token");
 
 		if (refreshToken && process.env.REFRESH_TOKEN_SECRET) {
 			const decoded = jwt.verify(
@@ -245,7 +240,7 @@ authRoute.get("/refresh-token", async (c) => {
 		const headers = c.req.header();
 		const deviceId = headers["x-device-id"];
 		const secret = process.env.REFRESH_TOKEN_SECRET as string;
-		const refreshToken = await getSignedCookie(c, secret, "refresh_token");
+		const refreshToken = getCookie(c, "refresh_token");
 
 		if (!refreshToken) {
 			return c.json({
@@ -255,7 +250,6 @@ authRoute.get("/refresh-token", async (c) => {
 		
 		const decoded = jwt.verify(refreshToken, secret) as JWTPayload;
 		const storedToken = await getStoredTokenFromRedis(decoded.userId, deviceId);
-
 		if (storedToken !== refreshToken) {
 			return c.json({
 				message: "Invalid refresh token",

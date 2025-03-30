@@ -29,9 +29,11 @@ const deleteAllRefreshTokens = async (userId: string) => {
 };
 
 const getStoredTokenFromRedis = async (userId: string, deviceId?: string) => {
+  console.log('userId in getStoredTokenFromRedis: ', userId, 'deviceId: ', deviceId)
   if (deviceId) {
       // Get token for specific device
       const token = await redis.hget(`user_sessions:${userId}`, deviceId);
+      console.log('token from redis in getStoredTokenFromRedis: ', token)
       return token;
   }
   // Fallback to single session storage
