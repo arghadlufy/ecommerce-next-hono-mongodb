@@ -4,8 +4,13 @@ import authValidationSchema from "@/lib/validation-schema/signup.schema";
 import db from "@/lib/database/db";
 import User from "@/lib/database/model/user.model";
 import generateToken from "@/lib/database/utils/generate-token";
-import { storeRefreshToken } from "@/lib/database/utils/store-refresh-token";
-import { setSignedCookie } from "hono/cookie";
+import {
+	deleteAllRefreshTokens,
+	storeRefreshToken,
+} from "@/lib/database/utils/store-refresh-token";
+import jwt from "jsonwebtoken";
+import { setSignedCookie, getSignedCookie, deleteCookie } from "hono/cookie";
+import { JWTPayload } from "@/types";
 
 const authRoute = new Hono();
 
@@ -42,13 +47,13 @@ authRoute.post(
 
 			await storeRefreshToken(user._id, refreshToken, deviceId);
 
-			if (process.env.SIGNED_COOKIE_SECRET) {
+			if (process.env.ACCESS_TOKEN_SECRET && process.env.REFRESH_TOKEN_SECRET) {
 				// Access Token
 				await setSignedCookie(
 					c,
 					"access_token",
 					accessToken,
-					process.env.SIGNED_COOKIE_SECRET,
+					process.env.ACCESS_TOKEN_SECRET,
 					{
 						path: "/",
 						secure: process.env.NODE_ENV === "production",
@@ -64,7 +69,7 @@ authRoute.post(
 					c,
 					"refresh_token",
 					refreshToken,
-					process.env.SIGNED_COOKIE_SECRET,
+					process.env.REFRESH_TOKEN_SECRET,
 					{
 						path: "/",
 						secure: process.env.NODE_ENV === "production",
@@ -107,16 +112,128 @@ authRoute.post(
 	},
 );
 
-authRoute.get("/login", (c: Context) => {
-	return c.json({
-		message: "Login route",
-	});
-});
+authRoute.post(
+	"/login",
+	validator("json", (value, c) => {
+		const parsed = authValidationSchema.loginSchema.safeParse(value);
+		if (!parsed.success) {
+			return c.text(parsed.error.message, 400);
+		}
+		return parsed.data;
+	}),
+	async (c) => {
+		try {
+			const { email, password } = c.req.valid("json");
+			const headers = c.req.header();
+			const deviceId = headers["x-device-id"];
+			const user = await User.findOne({ email });
+			if (!user) {
+				return c.json(
+					{
+						message: "Invalid email or password",
+					},
+					401,
+				);
+			}
 
-authRoute.get("/logout", (c: Context) => {
-	return c.json({
-		message: "Logout route",
-	});
+			const isPasswordValid = await user.comparePassword(password);
+			if (!isPasswordValid) {
+				return c.json(
+					{
+						message: "Invalid email or password",
+					},
+					401,
+				);
+			}
+
+			const { accessToken, refreshToken } = generateToken(user._id);
+
+			await storeRefreshToken(user._id, refreshToken, deviceId);
+
+			if (process.env.ACCESS_TOKEN_SECRET && process.env.REFRESH_TOKEN_SECRET) {
+				// Access Token
+				await setSignedCookie(
+					c,
+					"access_token",
+					accessToken,
+					process.env.ACCESS_TOKEN_SECRET,
+					{
+						path: "/",
+						secure: process.env.NODE_ENV === "production",
+						httpOnly: true,
+						maxAge: 15 * 60, // 15 minutes
+						expires: new Date(Date.now() + 15 * 60 * 1000),
+						sameSite: "Strict", // Strict, Lax, None
+					},
+				);
+
+				// Refresh Token
+				await setSignedCookie(
+					c,
+					"refresh_token",
+					refreshToken,
+					process.env.REFRESH_TOKEN_SECRET,
+					{
+						path: "/",
+						secure: process.env.NODE_ENV === "production",
+						httpOnly: true,
+						maxAge: 60 * 60 * 24 * 7, // 7 days
+						expires: new Date(Date.now() + 60 * 60 * 24 * 7 * 1000),
+						sameSite: "Strict", // Strict, Lax, None
+					},
+				);
+			} else {
+				return c.json(
+					{
+						message: "Internal server error. Signed cookie secret is not set",
+					},
+					500,
+				);
+			}
+
+			return c.json({
+				message: "Login successful",
+				user: {
+					_id: user._id,
+					name: user.name,
+					email: user.email,
+					role: user.role,
+				},
+			});
+		} catch (error) {}
+	},
+);
+
+authRoute.get("/logout", async (c: Context) => {
+	try {
+		const headers = c.req.header();
+		const deviceId = headers["x-device-id"];
+		const secret = process.env.REFRESH_TOKEN_SECRET as string;
+		const refreshToken = await getSignedCookie(c, secret, "refresh_token");
+
+		if (refreshToken && process.env.REFRESH_TOKEN_SECRET) {
+			const decoded = jwt.verify(
+				refreshToken,
+				process.env.REFRESH_TOKEN_SECRET,
+			) as JWTPayload;
+			await deleteAllRefreshTokens(decoded.userId);
+		}
+
+		// delete all cookies
+		deleteCookie(c, "access_token");
+		deleteCookie(c, "refresh_token");
+
+		return c.json({
+			message: "Logout successful",
+		});
+	} catch (error: any) {
+		return c.json(
+			{
+				message: "Internal server error",
+			},
+			500,
+		);
+	}
 });
 
 export default authRoute;
